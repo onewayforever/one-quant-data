@@ -8,7 +8,7 @@ with open("README.md", "r") as fh:
 
 setup(
     name='one_quant_data',
-    version='0.0.1',
+    version='0.1.0',
     author='onewayforever',
     author_email='onewayforever@163.com',
     url='https://github.com/onewayforever/one-quant-data',
@@ -18,7 +18,7 @@ setup(
     #packages=find_packages(),
     packages=['one_quant_data'],
     install_requires=[
-        'tushare>=1.2.21',
+        'tushare>=1.2.26',
         'progressbar',
         'pandas',
         'pymysql',
