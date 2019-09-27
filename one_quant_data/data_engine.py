@@ -96,7 +96,13 @@ class DataEngine():
         config = config_json['data_engine']
         api = config['api']
         cache = config['cache']
-        print(cache)
+        self.tables = {
+                "stock_trade_daily":"pro_stock_k_daily",
+                "stock_fq_daily":"pro_stock_fq_daily",
+                "index_trade_daily":"pro_index_k_daily",
+                "stock_basic_daily":"pro_stock_basic_daily",
+                "stock_basic_info":"pro_stock_basic_info"
+        }
         if cache.get('db')=='mysql':
             self.cache='mysql'
             user=cache.get('user')
@@ -106,7 +112,7 @@ class DataEngine():
             schema =cache.get('schema')
             self.conn = create_engine('mysql+pymysql://{}:{}@{}:{}/{}?charset=utf8'.format(user,password,host,port,schema))
             print('use mysql as data cache')
-            self.tables = {}
+            self.START_DATE=cache.get('start_date',START_DATE)
         if api.get('name')=='tushare_pro':
             token = api.get('token')
             self.api = 'tushare_pro'
@@ -114,27 +120,59 @@ class DataEngine():
             ts.set_token(token)
             print(token)
             print('use tushare as data api')
-            self.tables = {
-                "stock_trade_daily":"pro_stock_k_daily",
-                "index_trade_daily":"pro_index_k_daily",
-                "stock_basic_daily":"pro_stock_basic_daily"
-            }
-        if api.get('name')=='tushare':
-            self.tables = {
-                "stock_trade_daily":"trade_daily",
-                "index_trade_daily":"trade_daily"
-            }
-        if api.get('name')=='offline':
-            self.offline=True
-            self.tables = {
-                "stock_trade_daily":"pro_stock_k_daily",
-                "index_trade_daily":"pro_index_k_daily",
-                "stock_basic_daily":"pro_stock_basic_daily"
-            }
+            DBSession = sessionmaker(self.conn)
+            session = DBSession()
+            table_name=self.tables["stock_trade_daily"]
+            session.execute("CREATE TABLE IF NOT EXISTS {} (\
+                            `ts_code` VARCHAR(10),\
+                            `trade_date` VARCHAR(8),\
+                            `open` Float(7,2),\
+                            `high` Float(7,2),\
+                            `low` Float(7,2),\
+                            `close` Float(7,2),\
+                            `pre_close` Float(7,2),\
+                            `change` Float(7,2),\
+                            `pct_chg` Float(7,2),\
+                            `vol` Float(16,2),\
+                            `amount` Float(16,2),\
+                            PRIMARY KEY (ts_code,trade_date),\
+                            INDEX qkey (ts_code,trade_date))".format(table_name))
+            table_name=self.tables["stock_fq_daily"]
+            session.execute("CREATE TABLE IF NOT EXISTS {} (\
+                            `ts_code` VARCHAR(10),\
+                            `trade_date` VARCHAR(8),\
+                            `adj_factor` Float(7,2),\
+                            PRIMARY KEY (ts_code,trade_date),\
+                            INDEX qkey (ts_code,trade_date))".format(table_name))
+            table_name=self.tables["stock_basic_daily"]
+            session.execute("CREATE TABLE IF NOT EXISTS {} (\
+                            `ts_code` VARCHAR(10),\
+                            `trade_date` VARCHAR(8),\
+                            `close` Float(7,2),\
+                            `turnover_rate` Float(7,2),\
+                            `turnover_rate_f` Float(7,2),\
+                            `volume_ratio` Float(7,2),\
+                            `pe` Float(7,2),\
+                            `pe_ttm` Float(7,2),\
+                            `pb` Float(7,2),\
+                            `ps` Float(7,2),\
+                            `ps_ttm` Float(7,2),\
+                            `total_share` Float(16,2),\
+                            `float_share` Float(16,2),\
+                            `free_share` Float(16,2),\
+                            `total_mv` Float(16,2),\
+                            `circ_mv` Float(16,2),\
+                            PRIMARY KEY (ts_code,trade_date),\
+                            INDEX qkey (ts_code,trade_date))".format(table_name))
+            session.close()
+        ### init engine
+        self.generic_init_engine()
+        if self.api=="tushare_pro":
+            self.pro_init_engine()
+        if self.api=="offline":
+            self.offline_init_engine()
+            
 
-
-    def preview_cache(self):
-        return
 
     #获得所有股票列表
     def get_all_stocks(self):
@@ -381,46 +419,118 @@ class DataEngine():
         dates = list(self.pro.index_daily(ts_code='000001.SH', start_date=format_date_ts_pro(start),end_date=format_date_ts_pro(end)).trade_date)
         return dates
 
-    def update_cache_stock_basic(self):
-        table = self.tables['stock_basic_daily']
-        dates = list(self.pro.index_daily(ts_code='000001.SH', start_date=format_date_ts_pro(START_DATE)).trade_date)
-        query_dates = 'SELECT trade_date FROM {} group by trade_date'.format(table);
-        query_table = "SELECT table_name FROM information_schema.TABLES WHERE table_name ='{}';".format(table)
+
+    '''
+        pro_bar仅返回缓存中的数据，如果需要使用最新的数据，使用self.pro的tushare接口去访问
+    '''
+    def pro_bar(self,ts_code,start_date=None,end_date=None,asset='E',adj=None,freq='D'):
+        assert asset=='E'
+        start_date = self.cached_start if start_date is None else start_date
+        end_date = self.cached_end if end_date is None else end_date 
+        if start_date < self.cached_start:
+            print('WARNING: query date {} before cached date {}'.format(start_date,self.cached_start))
+        if end_date > self.cached_end:
+            print('WARNING: query date {} after cached date {}'.format(end_date,self.cached_end))
+        df_k = pd.read_sql_query("select * from {} where trade_date>='{}' and trade_date<='{}' and ts_code='{}' order by trade_date;".format(self.tables['stock_trade_daily'],start_date,end_date,ts_code),self.conn)
+        if adj is None:
+            return pro_opt_stock_k(df_k)
+        df_fq = pd.read_sql_query("select * from {} where trade_date>='{}' and trade_date<='{}' and ts_code='{}' order by trade_date;".format(self.tables['stock_fq_daily'],start_date,end_date,ts_code),self.conn)
+        df = df_k.merge(df_fq,on=['ts_code','trade_date'],how='inner')
+        if adj=='qfq':
+            latest_adj=float(df.tail(1).adj_factor)
+            df.close = df.close*df.adj_factor/latest_adj 
+            df.high = df.high*df.adj_factor/latest_adj 
+            df.low = df.low*df.adj_factor/latest_adj 
+            df.open= df.open*df.adj_factor/latest_adj 
+        if adj=='hfq':
+            df.close = df.close*df.adj_factor 
+            df.high = df.high*df.adj_factor 
+            df.low = df.low*df.adj_factor 
+            df.open= df.open*df.adj_factor 
+        return pro_opt_stock_k(df)
+        
+
+    def pro_sync_stock_info_by_date(self,date):
+        df_k = self.pro.daily(trade_date=format_date_ts_pro(date))
+        df_adj = self.pro.adj_factor(trade_date=format_date_ts_pro(date))
+        df_basic = self.pro.daily_basic(trade_date=format_date_ts_pro(date))
+        #print('sync stock trade data on the date:{} with data:{}'.format(date,df_k.shape[0]))
+        try:
+            df_k.to_sql(self.tables['stock_trade_daily'],con=self.conn,if_exists='append',index=False)
+        except TypeError as res:
+            print(res)
+        try:
+            df_adj.to_sql(self.tables['stock_fq_daily'],con=self.conn,if_exists='append',index=False)
+        except TypeError as res:
+            print(res)
+        try:
+            df_basic.to_sql(self.tables['stock_basic_daily'],con=self.conn,if_exists='append',index=False)
+        except TypeError as res:
+            print(res)
+    
+    def sync_stock_info_by_date(self,date):
+        if self.api=='tushare_pro':
+            return self.pro_sync_stock_info_by_date(date)
+
+    def get_cached_trade_dates(self):
         DBSession = sessionmaker(self.conn)
         session = DBSession()
-        table = list(session.execute(query_table))
-        if len(table)==0:
-            cached_dates=[]
-        else:	
-            cached_dates = list(map(lambda x:x[0],session.execute(query_dates)))
+        query_cached_trade_dates = 'SELECT trade_date FROM {} group by trade_date'.format(self.tables['stock_trade_daily']);
+        cached_trade_dates = list(map(lambda x:x[0],session.execute(query_cached_trade_dates)))
+        query_cached_basic_dates = 'SELECT trade_date FROM {} group by trade_date'.format(self.tables['stock_basic_daily']);
+        cached_basic_dates= list(map(lambda x:x[0],session.execute(query_cached_basic_dates)))
+        query_cached_fq_dates = 'SELECT trade_date FROM {} group by trade_date'.format(self.tables['stock_fq_daily']);
+        cached_fq_dates= list(map(lambda x:x[0],session.execute(query_cached_fq_dates)))
         #print(res)
         session.close()
+        cached_dates=set(cached_trade_dates).intersection(set(cached_basic_dates)).intersection(set(cached_fq_dates))
+        cached_dates = list(sorted(cached_dates,reverse=True))
+        return cached_dates
+    
+    '''
+        按日期来同步所有股票数据
+    '''
+    def sync_stock_info(self):
+        table = self.tables['stock_basic_daily']
+        dates = list(self.pro.index_daily(ts_code='000001.SH', start_date=format_date_ts_pro(self.START_DATE)).trade_date)
+        cached_dates = self.get_cached_trade_dates()
         uncached = list(set(dates).difference(set(cached_dates)))
-        print('stock of the dates need to be cached {}'.format(uncached))
-        uncached = list(sorted(uncached))
-        for date in uncached:
-            #print(date)
-            self.get_basic_on_the_date(date)
-        
-    def update_cache_stock_k(self):
+        print('dates of need to be cached: {}'.format(len(uncached)))
+        uncached = list(sorted(uncached,reverse=True))
+        total = len(uncached)
+        if total==0:
+            print('Already latest data, no data need to be sync')
+            return
+        print('To sync stock info from Yesterday to {}'.format(self.START_DATE))
+        print('Dates to be synced from {} to {}, total {} days'.format(uncached[0],uncached[-1],total))
         pbar = progressbar.ProgressBar().start()
-        stock_pool = self.get_all_stocks()
-        total=len(stock_pool)
         for i in range(total):
             pbar.update(int((i / (total - 1)) * 100))
-            code = stock_pool[i]
-            #print('update stock {}'.format(code))
-            self.get_k_data(code,start=START_DATE)
+            #print(date)
+            self.sync_stock_info_by_date(uncached[i])
+            time.sleep(0.3)
         pbar.finish()
 
-def update_cache_stock_basic():
-    engine = DataEngine()
-    engine.update_cache_stock_basic()
+    def generic_init_engine(self):
+        cached_dates = self.get_cached_trade_dates()
+        self.cached_start = min(cached_dates)
+        self.cached_end = max(cached_dates)
+        print('NOTICE: trade data is available from {} to {}'.format(self.cached_start,self.cached_end))
 
+    def pro_init_engine(self):
+        assert self.api=="tushare_pro"
+        self.stock_basic = self.pro.stock_basic() 
+        self.stock_basic.to_sql(self.tables['stock_basic_info'],con=self.conn,if_exists='replace',index=False)
+        return
 
-def update_cache_stock_k():
-    engine = DataEngine()
-    engine.update_cache_stock_k()
+    def offline_init_engine(self):
+        assert self.api=="offline"
+        query_stock = "select * from {};".format(self.tables['stock_basic_info'])
+        self.stock_basic = pd.read_sql_query(query_stock,self.conn)
+        return
+        
+        
+
 
 if __name__=="__main__":
     #update_cache_stock_k()
@@ -435,7 +545,13 @@ if __name__=="__main__":
     #df = engine.get_basic_on_the_date('2010-06-01')
     #print(df)
     #print(df.info(memory_usage='deep'))
-    update_cache_stock_basic()
+    engine = DataEngine('../config.json')
+    #engine.sync_stock_k_by_date('2017-07-03')
+    #engine.sync_stock_info()
+    df=engine.pro_bar('000651.SZ',adj='qfq')
+    print(df)
+    #engine.update_cache_stock_basic()
+    #engine.update_cache_stock_k()
 
 
     
