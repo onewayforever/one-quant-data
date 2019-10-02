@@ -24,25 +24,6 @@ import datetime
 START_DATE='2010-06-01'
 
 
-Yesterday = (datetime.date.today()-datetime.timedelta(days=1)).strftime('%Y%m%d')
-
-def load_data_config(config_file):
-    if isinstance(config_file,str):
-        config_json = json.load(open(config_file))
-    else:
-        config_json = config_file
-    print('config file')
-    print(config_file)
-    assert config_json.get("start") is not None
-    assert config_json.get("end") is not None
-    num_str = config_json.get("num")
-    num = None if num_str is None else int(num_str)
-    #if num_str is not None:
-    #    stock_pool = stock_pool[:int(num_str)]    
-
-    index_pool=["000001.SH","399001.SZ","399005.SZ","399006.SZ"]
-    return (num,index_pool,config_json.get("start"),config_json.get("end"))
-
 def pro_opt_stock_k(df):
     if df is None:
         return None
@@ -194,10 +175,6 @@ class DataEngine():
             session.close()
         ### init engine
         self.__generic_init_engine()
-        if self.api=="tushare_pro":
-            self.__pro_init_engine()
-        if self.api=="offline":
-            self.__offline_init_engine()
 
     def get_trade_dates(self,start):
         return list(sorted(self.pro.index_daily(ts_code='000001.SH', start_date=format_date_ts_pro(start)).trade_date,reverse=True))
@@ -281,6 +258,7 @@ class DataEngine():
 
 
     def prefetch_data(self):
+        assert self.api=="tushare_pro"
         latest_date = max(self.trade_dates)
         df_index_basic = self.pro.index_dailybasic(trade_date=format_date_ts_pro(latest_date))
         index_codes=list(df_index_basic.ts_code)
@@ -368,6 +346,9 @@ class DataEngine():
         table = self.tables['stock_basic_daily']
         #dates = list(self.pro.index_daily(ts_code='000001.SH', start_date=format_date_ts_pro(self.START_DATE)).trade_date)
         #dates = self.get_trade_dates(format_date_ts_pro(self.START_DATE))
+        self.__stock_basic = self.pro.stock_basic() 
+        self.__stock_basic.to_sql(self.tables['stock_basic_info'],con=self.conn,if_exists='replace',index=False)
+        self.trade_dates = self.get_trade_dates(format_date_ts_pro(self.START_DATE))
         dates = self.trade_dates
         cached_dates = self.__get_cached_trade_dates()
         uncached = list(set(dates).difference(set(cached_dates)))
@@ -378,17 +359,20 @@ class DataEngine():
         if total==0:
             print('Already latest data, no data need to be sync')
             return
-        print('To sync stock info from Yesterday to {}'.format(self.START_DATE))
+        print('To sync stock info from {} to today'.format(self.START_DATE))
         print('Dates to be synced from {} to {}, total {} days'.format(uncached[0],uncached[-1],total))
         start_time=datetime.datetime.now()
         print('sync start at {}'.format(start_time.strftime("%H:%M:%S")))
         self.prefetch_data()
         pbar = progressbar.ProgressBar().start()
-        for i in range(total):
-            pbar.update(int((i / (total - 1)) * 100))
-            #print(date)
-            self.sync_data_by_date(uncached[i])
-            time.sleep(0.3)
+        if total>1:
+            for i in range(total):
+                pbar.update(int((i / (total - 1)) * 100))
+                #print(date)
+                self.sync_data_by_date(uncached[i])
+                time.sleep(0.3)
+        else:
+            self.sync_data_by_date(uncached[0])
         pbar.finish()
         end_time=datetime.datetime.now()
         print('sync end at {}'.format(end_time.strftime("%H:%M:%S")))
@@ -397,23 +381,22 @@ class DataEngine():
         cached_dates = self.__get_cached_trade_dates()
         self.cached_start = None if len(cached_dates)==0 else min(cached_dates) 
         self.cached_end = None if len(cached_dates)==0 else max(cached_dates)
-        print('NOTICE: trade data is available from {} to {}'.format(self.cached_start,self.cached_end))
+        if self.cached_start is None or self.cached_end is None:
+            print('ERROR: db is empty, please use sync_data to sync data first')
+            exit(0)
+        else:
+            print('NOTICE: trade data is available from {} to {}'.format(self.cached_start,self.cached_end))
+            query_stock = "select * from {};".format(self.tables['stock_basic_info'])
+            self.__stock_basic = pd.read_sql_query(query_stock,self.conn)
+            query_stock = "SELECT ts_code FROM {} group by ts_code;".format(self.tables['index_basic_daily'])
+            self.__index_codes = list(pd.read_sql_query(query_stock,self.conn).ts_code)
 
-    def __pro_init_engine(self):
-        assert self.api=="tushare_pro"
-        self.stock_basic = self.pro.stock_basic() 
-        self.stock_basic.to_sql(self.tables['stock_basic_info'],con=self.conn,if_exists='replace',index=False)
-        self.trade_dates = self.get_trade_dates(format_date_ts_pro(self.START_DATE))
-        return
-
-    def __offline_init_engine(self):
-        assert self.api=="offline"
-        query_stock = "select * from {};".format(self.tables['stock_basic_info'])
-        self.stock_basic = pd.read_sql_query(query_stock,self.conn)
-        return
         
     def stock_basic(self):
-        return self.stock_basic
+        return self.__stock_basic
+
+    def index_codes(self):
+        return self.__index_codes
         
 
 
@@ -421,13 +404,15 @@ if __name__=="__main__":
     engine = DataEngine('../config.json')
     #engine.sync_data_by_date('2017-07-03')
     #engine.sync_data()
+    print(engine.stock_basic())
+    #print(engine.index_codes())
     #df=engine.pro_bar('000651.SZ',adj='qfq')
     #df=engine.daily_basic(trade_date='20190926')
     #df=engine.daily_basic('000651.SZ')
     #df=engine.index_dailybasic(trade_date='20190926')
     #df=engine.index_dailybasic('000001.SH')
-    df=engine.index_daily('000001.SH')
-    print(df)
+    #df=engine.index_daily('000001.SH')
+    #print(df)
 
 
     
