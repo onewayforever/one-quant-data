@@ -78,7 +78,9 @@ class DataEngine():
                 "index_trade_daily":"pro_index_k_daily",
                 "stock_basic_daily":"pro_stock_basic_daily",
                 "index_basic_daily":"pro_index_basic_daily",
-                "stock_basic_info":"pro_stock_basic_info"
+                "stock_basic_info":"pro_stock_basic_info",
+                "fina_mainbz_product":"pro_fina_mainbz_product",
+                "fina_mainbz_district":"pro_fina_mainbz_district"
         }
         if cache.get('db')=='mysql':
             self.cache='mysql'
@@ -172,6 +174,28 @@ class DataEngine():
                             `pb` Float,\
                             PRIMARY KEY (ts_code,trade_date),\
                             INDEX qkey (ts_code,trade_date))".format(table_name))
+            table_name=self.tables["fina_mainbz_product"]
+            session.execute("CREATE TABLE IF NOT EXISTS {} (\
+                            `ts_code` VARCHAR(10),\
+                            `end_date` VARCHAR(8),\
+                            `bz_item` VARCHAR(512),\
+                            `bz_sales` Float,\
+                            `bz_profit` Float,\
+                            `bz_cost` Float,\
+                            `curr_type` VARCHAR(4),\
+                            PRIMARY KEY (ts_code,end_date,bz_item),\
+                            INDEX qkey (ts_code,end_date))".format(table_name))
+            table_name=self.tables["fina_mainbz_district"]
+            session.execute("CREATE TABLE IF NOT EXISTS {} (\
+                            `ts_code` VARCHAR(10),\
+                            `end_date` VARCHAR(8),\
+                            `bz_item` VARCHAR(512),\
+                            `bz_sales` Float,\
+                            `bz_profit` Float,\
+                            `bz_cost` Float,\
+                            `curr_type` VARCHAR(4),\
+                            PRIMARY KEY (ts_code,end_date,bz_item),\
+                            INDEX qkey (ts_code,end_date))".format(table_name))
             session.close()
         ### init engine
         self.__generic_init_engine()
@@ -310,6 +334,17 @@ class DataEngine():
     def sync_data_by_date(self,date):
         if self.api=='tushare_pro':
             return self.pro_sync_data_by_date(date)
+    
+    def __get_cached_cmd_groupby_stock(self,table_name,cmd):
+        DBSession = sessionmaker(self.conn)
+        session = DBSession()
+        query = 'SELECT ts_code,{} FROM {} group by ts_code'.format(cmd,self.tables[table_name]);
+        #res = list(map(lambda x:x[0],session.execute(query)))
+        res = session.execute(query)
+        ret = dict(zip(map(lambda x:x[0],res),map(lambda x:x[1],res)))
+        session.close()
+        return ret
+        
 
     def __get_cached_trade_dates(self):
         DBSession = sessionmaker(self.conn)
@@ -376,6 +411,46 @@ class DataEngine():
         pbar.finish()
         end_time=datetime.datetime.now()
         print('sync end at {}'.format(end_time.strftime("%H:%M:%S")))
+    
+    '''
+        按股票来同步所有股票数据
+    '''
+    def sync_data_iterate_stock(self):
+        if self.api == "offline":
+            print('you should use tushare_pro to sync data')
+            return
+        mainbz_product_dates = self.__get_cached_cmd_groupby_stock('fina_mainbz_product','max(end_date)')
+        mainbz_district_dates = self.__get_cached_cmd_groupby_stock('fina_mainbz_district','max(end_date)')
+        pbar = progressbar.ProgressBar().start()
+        stock_codes = list(self.stock_basic().ts_code)
+        total = len(stock_codes)
+        print('To sync data of {} stocks'.format(total))
+        if total>1:
+            for i in range(total):
+                pbar.update(int((i / (total - 1)) * 100))
+                #print(date)
+                self.__sync_mainbz_by_stock(stock_codes[i],'P',mainbz_product_dates.get(stock_codes[i]))
+                self.__sync_mainbz_by_stock(stock_codes[i],'D',mainbz_product_dates.get(stock_codes[i]))
+                #time.sleep(0.3)
+        else:
+            self.__sync_mainbz_by_stock(stock_codes[0],'P',mainbz_product_dates.get(stock_codes[0]))
+            self.__sync_mainbz_by_stock(stock_codes[0],'D',mainbz_product_dates.get(stock_codes[0]))
+            #self.sync_data_by_date(uncached[0])
+            pass
+        pbar.finish()
+
+    def __sync_mainbz_by_stock(self,ts_code,by,after_date=None):
+        if by=='P':
+            table_name = 'fina_mainbz_product'
+            df = self.pro.fina_mainbz(ts_code=ts_code, type='P')
+        elif by=='D':
+            table_name = 'fina_mainbz_district'
+            df = self.pro.fina_mainbz(ts_code=ts_code, type='D')
+        else:
+            return
+        if after_date is not None:
+            df = df[df.end_date>after_date]
+        df.to_sql(self.tables[table_name],con=self.conn,if_exists='append',index=False)
 
     def __generic_init_engine(self):
         cached_dates = self.__get_cached_trade_dates()
@@ -397,14 +472,18 @@ class DataEngine():
 
     def index_codes(self):
         return self.__index_codes
+
         
 
 
 if __name__=="__main__":
     engine = DataEngine('../config.json')
+    #res=engine.__get_cached_cmd_groupby_stock('stock_trade_daily','max(trade_date)')
+    #print(res)
+    engine.sync_data_iterate_stock()
     #engine.sync_data_by_date('2017-07-03')
     #engine.sync_data()
-    print(engine.stock_basic())
+    #print(engine.stock_basic())
     #print(engine.index_codes())
     #df=engine.pro_bar('000651.SZ',adj='qfq')
     #df=engine.daily_basic(trade_date='20190926')
