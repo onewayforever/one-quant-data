@@ -17,11 +17,33 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.types import NVARCHAR, Float, Integer
 import datetime
-
+import pymysql
+np.set_printoptions(suppress=True)
 
         
 #使用创业板开板时间作为默认起始时间
 START_DATE='2010-06-01'
+
+TODAY=datetime.date.today().strftime('%Y%m%d')
+
+def dataframe_to_db_replace(df,table_name,conn):
+    DBSession = sessionmaker(conn)
+    session = DBSession()
+    d = df.to_dict(orient='index')
+    try:
+        for lnum in d.keys():
+            line = d[lnum]
+            keys = ','.join(list(line.keys()))
+            values = ','.join(map(lambda x:str(x) if not isinstance(x,str) else '\''+pymysql.escape_string(x)+'\'',list(line.values())))
+            query = 'REPLACE INTO {} ({}) VALUES ({})'.format(table_name,keys,values)
+        #print(query)
+            session.execute(query)
+        session.commit()
+    except TypeError as res:
+        print(res)
+        session.rollback()
+    session.close()
+    
 
 
 def pro_opt_stock_k(df):
@@ -183,7 +205,8 @@ class DataEngine():
                             `bz_profit` Float,\
                             `bz_cost` Float,\
                             `curr_type` VARCHAR(4),\
-                            PRIMARY KEY (ts_code,end_date,bz_item),\
+                            `sync_date` VARCHAR(8),\
+                            PRIMARY KEY (ts_code,end_date,bz_item,bz_sales),\
                             INDEX qkey (ts_code,end_date))".format(table_name))
             table_name=self.tables["fina_mainbz_district"]
             session.execute("CREATE TABLE IF NOT EXISTS {} (\
@@ -194,7 +217,8 @@ class DataEngine():
                             `bz_profit` Float,\
                             `bz_cost` Float,\
                             `curr_type` VARCHAR(4),\
-                            PRIMARY KEY (ts_code,end_date,bz_item),\
+                            `sync_date` VARCHAR(8),\
+                            PRIMARY KEY (ts_code,end_date,bz_item,bz_sales),\
                             INDEX qkey (ts_code,end_date))".format(table_name))
             session.close()
         ### init engine
@@ -279,9 +303,34 @@ class DataEngine():
             print('WARNING: query date {} after cached date {}'.format(end_date,self.cached_end))
         df_k = pd.read_sql_query("select * from {} where trade_date>='{}' and trade_date<='{}' and ts_code='{}' order by trade_date;".format(self.tables['index_trade_daily'],start_date,end_date,ts_code),self.conn)
         return df_k
+    
+    '''
+        fina_mainbz 仅返回缓存中的数据，如果需要使用最新的数据，使用self.pro的tushare接口去访问
+    '''
 
+    def fina_mainbz(self,ts_code,period=None,type='P',start_date=None,end_date=None):
+        start_date = '19900101' if start_date is None else start_date
+        end_date = TODAY if end_date is None else end_date 
+        if type=='P':
+            table_name='fina_mainbz_product'
+        elif type=='D':
+            table_name='fina_mainbz_district'
+        df= pd.read_sql_query("select * from {} where end_date>='{}' and end_date<='{}' and ts_code='{}' order by end_date;".format(self.tables[table_name],start_date,end_date,ts_code),self.conn)
+        return df
 
-    def prefetch_data(self):
+    '''
+        fina_mainbz_vip 仅返回缓存中的数据，如果需要使用最新的数据，使用self.pro的tushare接口去访问
+    '''
+
+    def fina_mainbz_vip(self,period,type='P'):
+        if type=='P':
+            table_name='fina_mainbz_product'
+        elif type=='D':
+            table_name='fina_mainbz_district'
+        df= pd.read_sql_query("select * from {} where end_date='{}' order by ts_code;".format(self.tables[table_name],period),self.conn)
+        return df
+
+    def __prefetch_data(self):
         assert self.api=="tushare_pro"
         latest_date = max(self.trade_dates)
         df_index_basic = self.pro.index_dailybasic(trade_date=format_date_ts_pro(latest_date))
@@ -340,7 +389,7 @@ class DataEngine():
         session = DBSession()
         query = 'SELECT ts_code,{} FROM {} group by ts_code'.format(cmd,self.tables[table_name]);
         #res = list(map(lambda x:x[0],session.execute(query)))
-        res = session.execute(query)
+        res = list(session.execute(query))
         ret = dict(zip(map(lambda x:x[0],res),map(lambda x:x[1],res)))
         session.close()
         return ret
@@ -374,7 +423,7 @@ class DataEngine():
     '''
         按日期来同步所有股票数据
     '''
-    def sync_data(self):
+    def sync_data_iterate_date(self):
         if self.api == "offline":
             print('you should use tushare_pro to sync data')
             return
@@ -398,7 +447,7 @@ class DataEngine():
         print('Dates to be synced from {} to {}, total {} days'.format(uncached[0],uncached[-1],total))
         start_time=datetime.datetime.now()
         print('sync start at {}'.format(start_time.strftime("%H:%M:%S")))
-        self.prefetch_data()
+        self.__prefetch_data()
         pbar = progressbar.ProgressBar().start()
         if total>1:
             for i in range(total):
@@ -419,22 +468,26 @@ class DataEngine():
         if self.api == "offline":
             print('you should use tushare_pro to sync data')
             return
-        mainbz_product_dates = self.__get_cached_cmd_groupby_stock('fina_mainbz_product','max(end_date)')
-        mainbz_district_dates = self.__get_cached_cmd_groupby_stock('fina_mainbz_district','max(end_date)')
+        mainbz_product_dates = self.__get_cached_cmd_groupby_stock('fina_mainbz_product','max(sync_date)')
+        mainbz_district_dates = self.__get_cached_cmd_groupby_stock('fina_mainbz_district','max(sync_date)')
         pbar = progressbar.ProgressBar().start()
         stock_codes = list(self.stock_basic().ts_code)
         total = len(stock_codes)
         print('To sync data of {} stocks'.format(total))
+        update_date = (datetime.date.today()-datetime.timedelta(days=10)).strftime('%Y%m%d')
         if total>1:
             for i in range(total):
                 pbar.update(int((i / (total - 1)) * 100))
                 #print(date)
-                self.__sync_mainbz_by_stock(stock_codes[i],'P',mainbz_product_dates.get(stock_codes[i]))
-                self.__sync_mainbz_by_stock(stock_codes[i],'D',mainbz_product_dates.get(stock_codes[i]))
-                #time.sleep(0.3)
+                if mainbz_product_dates.get(stock_codes[i]) is None or mainbz_product_dates.get(stock_codes[i])<update_date:
+                    self.__sync_mainbz_by_stock(stock_codes[i],'P',mainbz_product_dates.get(stock_codes[i]))
+                    time.sleep(1)
+                if mainbz_district_dates.get(stock_codes[i]) is None or mainbz_district_dates.get(stock_codes[i])<update_date:
+                    self.__sync_mainbz_by_stock(stock_codes[i],'D',mainbz_district_dates.get(stock_codes[i]))
+                    time.sleep(1)
         else:
             self.__sync_mainbz_by_stock(stock_codes[0],'P',mainbz_product_dates.get(stock_codes[0]))
-            self.__sync_mainbz_by_stock(stock_codes[0],'D',mainbz_product_dates.get(stock_codes[0]))
+            self.__sync_mainbz_by_stock(stock_codes[0],'D',mainbz_district_dates.get(stock_codes[0]))
             #self.sync_data_by_date(uncached[0])
             pass
         pbar.finish()
@@ -448,9 +501,16 @@ class DataEngine():
             df = self.pro.fina_mainbz(ts_code=ts_code, type='D')
         else:
             return
-        if after_date is not None:
-            df = df[df.end_date>after_date]
-        df.to_sql(self.tables[table_name],con=self.conn,if_exists='append',index=False)
+        #print('filter:{} {}'.format(ts_code,after_date))
+        df.dropna(inplace=True)
+        df.drop_duplicates(subset=['ts_code','end_date','bz_item','bz_sales'],inplace=True)
+        df['sync_date'] = TODAY
+        dataframe_to_db_replace(df,self.tables[table_name],self.conn)
+        #if after_date is not None:
+            #print('do filter')
+            #df = df[df.end_date>after_date]
+        #print((ts_code,after_date))
+        #df.to_sql(self.tables[table_name],con=self.conn,if_exists='append',index=False)
 
     def __generic_init_engine(self):
         cached_dates = self.__get_cached_trade_dates()
@@ -480,9 +540,11 @@ if __name__=="__main__":
     engine = DataEngine('../config.json')
     #res=engine.__get_cached_cmd_groupby_stock('stock_trade_daily','max(trade_date)')
     #print(res)
-    engine.sync_data_iterate_stock()
+    #engine.sync_data_iterate_stock()
+    #df = engine.fina_mainbz_vip(period='20190630', type='P')
+    #df = engine.fina_mainbz(ts_code='000627.SZ', type='P')
     #engine.sync_data_by_date('2017-07-03')
-    #engine.sync_data()
+    engine.sync_data_iterate_date()
     #print(engine.stock_basic())
     #print(engine.index_codes())
     #df=engine.pro_bar('000651.SZ',adj='qfq')
