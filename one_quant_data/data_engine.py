@@ -9,9 +9,7 @@ import sys
 import pickle
 import multiprocessing
 import time
-import progressbar
 
-from one_quant_data.utils import format_date_ts_pro
 import json
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -25,6 +23,11 @@ np.set_printoptions(suppress=True)
 START_DATE='2010-06-01'
 
 TODAY=datetime.date.today().strftime('%Y%m%d')
+
+def format_date_ts_pro(date):
+    if isinstance(date,str):
+        return date.replace('-','')
+    return date
 
 def dataframe_to_db_replace(df,table_name,conn):
     DBSession = sessionmaker(conn)
@@ -223,6 +226,7 @@ class DataEngine():
             session.close()
         ### init engine
         self.__generic_init_engine()
+
 
     def get_trade_dates(self,start):
         return list(sorted(self.pro.index_daily(ts_code='000001.SH', start_date=format_date_ts_pro(start)).trade_date,reverse=True))
@@ -521,17 +525,27 @@ class DataEngine():
             exit(0)
         else:
             print('NOTICE: trade data is available from {} to {}'.format(self.cached_start,self.cached_end))
-            query_stock = "select * from {};".format(self.tables['stock_basic_info'])
-            self.__stock_basic = pd.read_sql_query(query_stock,self.conn)
-            query_stock = "SELECT ts_code FROM {} group by ts_code;".format(self.tables['index_basic_daily'])
-            self.__index_codes = list(pd.read_sql_query(query_stock,self.conn).ts_code)
+            #query_stock = "select * from {};".format(self.tables['stock_basic_info'])
+            #self.__stock_basic = pd.read_sql_query(query_stock,self.conn)
+            #query_stock = "SELECT ts_code FROM {} group by ts_code;".format(self.tables['index_basic_daily'])
+            #self.__index_codes = list(pd.read_sql_query(query_stock,self.conn).ts_code)
 
         
     def stock_basic(self):
-        return self.__stock_basic
+        #if self.__stock_basic is None:
+        #    query_stock = "select * from {};".format(self.tables['stock_basic_info'])
+        #    self.__stock_basic = pd.read_sql_query(query_stock,self.conn)
+        #return self.__stock_basic
+        query_stock = "select * from {};".format(self.tables['stock_basic_info'])
+        return pd.read_sql_query(query_stock,self.conn)
 
     def index_codes(self):
-        return self.__index_codes
+        #if self.__index_codes is None:
+        #    query_stock = "SELECT ts_code FROM {} group by ts_code;".format(self.tables['index_basic_daily'])
+        #    self.__index_codes = list(pd.read_sql_query(query_stock,self.conn).ts_code)
+        #return self.__index_codes
+        query_stock = "SELECT ts_code FROM {} group by ts_code;".format(self.tables['index_basic_daily'])
+        return list(pd.read_sql_query(query_stock,self.conn).ts_code)
 
         
 
