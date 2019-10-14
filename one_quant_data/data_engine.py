@@ -90,7 +90,9 @@ def pro_opt_stock_basic(df):
 
 class DataEngine():
     def __init__(self,config_file='./config.json'):
+        self.stock_names = None
         self.offline=False
+        self.conn = None
         self.cache = None
         self.cached_start = None
         self.cached_end = None
@@ -229,6 +231,11 @@ class DataEngine():
             session.close()
         ### init engine
         #self.__generic_init_engine()
+
+    def __del__(self):
+        if self.conn is not None:
+            self.conn.dispose()
+
 
 
     def get_trade_dates(self,start):
@@ -564,7 +571,9 @@ class DataEngine():
         #    self.__stock_basic = pd.read_sql_query(query_stock,self.conn)
         #return self.__stock_basic
         query_stock = "select * from {};".format(self.tables['stock_basic_info'])
-        return pd.read_sql_query(query_stock,self.conn)
+        df = pd.read_sql_query(query_stock,self.conn)
+        self.stock_names = df[['ts_code','name']]
+        return df
 
     def index_codes(self):
         #if self.__index_codes is None:
@@ -574,10 +583,26 @@ class DataEngine():
         query_stock = "SELECT ts_code FROM {} group by ts_code;".format(self.tables['index_basic_daily'])
         return list(pd.read_sql_query(query_stock,self.conn).ts_code)
 
+    def attach_stock_name(self,df):
+        if self.stock_names is None:
+            self.stock_basic() 
+        assert 'ts_code' in df.columns
+        if 'name' in df.columns:
+            return df
+        else:
+            return df.merge(self.stock_names,on='ts_code',how='left')
+
         
 
+def test_sync():
+    print('Test data sync')
+    engine = DataEngine('../config.json')
+    engine.sync_data_iterate_stock()
+    engine.sync_data_iterate_date()
 
-if __name__=="__main__":
+
+def test_api():
+    print('Test api')
     engine = DataEngine('../config.json')
     #res=engine.__get_cached_cmd_groupby_stock('stock_trade_daily','max(trade_date)')
     #print(res)
@@ -585,17 +610,22 @@ if __name__=="__main__":
     df = engine.fina_mainbz_vip(period='20190630', type='P')
     df = engine.fina_mainbz(ts_code='000627.SZ', type='P')
     #engine.sync_data_by_date('2017-07-03')
-    engine.sync_data_iterate_date()
     print(engine.stock_basic())
     print(engine.index_codes())
     df=engine.pro_bar('000651.SZ',adj='qfq')
-    df=engine.daily_basic(trade_date='20190926')
+    df_daily=engine.daily_basic(trade_date='20190926')
     df=engine.daily_basic('000651.SZ')
     df=engine.index_dailybasic(trade_date='20190926')
     df=engine.index_dailybasic('000001.SH')
     df=engine.index_daily('000001.SH')
     print(df)
+    print(engine.attach_stock_name(df_daily))
 
+
+
+if __name__=="__main__":
+    #test_sync()
+    test_api()
 
     
     
