@@ -21,6 +21,7 @@ np.set_printoptions(suppress=True)
         
 #使用创业板开板时间作为默认起始时间
 START_DATE='2010-06-01'
+MIN_DATE='1990-01-01'
 
 TODAY=datetime.date.today().strftime('%Y%m%d')
 
@@ -91,6 +92,8 @@ class DataEngine():
     def __init__(self,config_file='./config.json'):
         self.offline=False
         self.cache = None
+        self.cached_start = None
+        self.cached_end = None
         self.api = 'offline' 
         config_json = json.load(open(config_file)) 
         assert config_json.get('data_engine')
@@ -225,7 +228,7 @@ class DataEngine():
                             INDEX qkey (ts_code,end_date))".format(table_name))
             session.close()
         ### init engine
-        self.__generic_init_engine()
+        #self.__generic_init_engine()
 
 
     def get_trade_dates(self,start):
@@ -234,10 +237,10 @@ class DataEngine():
     def __check_date_range(self,start_date,end_date):
         start_date = self.cached_start if start_date is None else start_date
         end_date = self.cached_end if end_date is None else end_date 
-        if start_date < self.cached_start:
-            print('WARNING: query date {} before cached date {}'.format(start_date,self.cached_start))
-        if end_date > self.cached_end:
-            print('WARNING: query date {} after cached date {}'.format(end_date,self.cached_end))
+        #if start_date < self.cached_start:
+        #    print('WARNING: query date {} before cached date {}'.format(start_date,self.cached_start))
+        #if end_date > self.cached_end:
+        #    print('WARNING: query date {} after cached date {}'.format(end_date,self.cached_end))
         return start_date,end_date
 
     '''
@@ -261,10 +264,14 @@ class DataEngine():
         assert asset=='E'
         start_date = self.cached_start if start_date is None else start_date
         end_date = self.cached_end if end_date is None else end_date 
-        if start_date < self.cached_start:
-            print('WARNING: query date {} before cached date {}'.format(start_date,self.cached_start))
-        if end_date > self.cached_end:
-            print('WARNING: query date {} after cached date {}'.format(end_date,self.cached_end))
+        if start_date is None:
+            start_date = MIN_DATE
+        if end_date is None:
+            end_date = TODAY
+        #if start_date < self.cached_start:
+        #    print('WARNING: query date {} before cached date {}'.format(start_date,self.cached_start))
+        #if end_date > self.cached_end:
+        #    print('WARNING: query date {} after cached date {}'.format(end_date,self.cached_end))
         df_k = pd.read_sql_query("select * from {} where trade_date>='{}' and trade_date<='{}' and ts_code='{}' order by trade_date;".format(self.tables['stock_trade_daily'],start_date,end_date,ts_code),self.conn)
         if adj is None:
             return pro_opt_stock_k(df_k)
@@ -301,10 +308,14 @@ class DataEngine():
     def index_daily(self,ts_code,start_date=None,end_date=None):
         start_date = self.cached_start if start_date is None else start_date
         end_date = self.cached_end if end_date is None else end_date 
-        if start_date < self.cached_start:
-            print('WARNING: query date {} before cached date {}'.format(start_date,self.cached_start))
-        if end_date > self.cached_end:
-            print('WARNING: query date {} after cached date {}'.format(end_date,self.cached_end))
+        if start_date is None:
+            start_date = MIN_DATE
+        if end_date is None:
+            end_date = TODAY
+        #if start_date < self.cached_start:
+        #    print('WARNING: query date {} before cached date {}'.format(start_date,self.cached_start))
+        #if end_date > self.cached_end:
+        #    print('WARNING: query date {} after cached date {}'.format(end_date,self.cached_end))
         df_k = pd.read_sql_query("select * from {} where trade_date>='{}' and trade_date<='{}' and ts_code='{}' order by trade_date;".format(self.tables['index_trade_daily'],start_date,end_date,ts_code),self.conn)
         return df_k
     
@@ -346,6 +357,7 @@ class DataEngine():
 
 
     def pro_sync_data_by_date(self,date):
+        self.cached_range()
         #print(self.cached_trade_dates)
         if date not in self.cached_trade_dates['stock_trade_daily']:
             df_k = self.pro.daily(trade_date=format_date_ts_pro(date))
@@ -530,6 +542,21 @@ class DataEngine():
             #query_stock = "SELECT ts_code FROM {} group by ts_code;".format(self.tables['index_basic_daily'])
             #self.__index_codes = list(pd.read_sql_query(query_stock,self.conn).ts_code)
 
+    def cached_range(self):
+        if self.cached_start is not None and self.cached_end is not None:
+            return (self.cached_start,self.cached_end)
+        cached_dates = self.__get_cached_trade_dates()
+        self.cached_start = None if len(cached_dates)==0 else min(cached_dates) 
+        self.cached_end = None if len(cached_dates)==0 else max(cached_dates)
+        if self.cached_start is None or self.cached_end is None:
+            print('ERROR: db is empty, please use sync_data to sync data first')
+            exit(0)
+        else:
+            print('NOTICE: trade data is available from {} to {}'.format(self.cached_start,self.cached_end))
+        return (self.cached_start,self.cached_end)
+
+
+
         
     def stock_basic(self):
         #if self.__stock_basic is None:
@@ -555,19 +582,19 @@ if __name__=="__main__":
     #res=engine.__get_cached_cmd_groupby_stock('stock_trade_daily','max(trade_date)')
     #print(res)
     #engine.sync_data_iterate_stock()
-    #df = engine.fina_mainbz_vip(period='20190630', type='P')
-    #df = engine.fina_mainbz(ts_code='000627.SZ', type='P')
+    df = engine.fina_mainbz_vip(period='20190630', type='P')
+    df = engine.fina_mainbz(ts_code='000627.SZ', type='P')
     #engine.sync_data_by_date('2017-07-03')
     engine.sync_data_iterate_date()
-    #print(engine.stock_basic())
-    #print(engine.index_codes())
-    #df=engine.pro_bar('000651.SZ',adj='qfq')
-    #df=engine.daily_basic(trade_date='20190926')
-    #df=engine.daily_basic('000651.SZ')
-    #df=engine.index_dailybasic(trade_date='20190926')
-    #df=engine.index_dailybasic('000001.SH')
-    #df=engine.index_daily('000001.SH')
-    #print(df)
+    print(engine.stock_basic())
+    print(engine.index_codes())
+    df=engine.pro_bar('000651.SZ',adj='qfq')
+    df=engine.daily_basic(trade_date='20190926')
+    df=engine.daily_basic('000651.SZ')
+    df=engine.index_dailybasic(trade_date='20190926')
+    df=engine.index_dailybasic('000001.SH')
+    df=engine.index_daily('000001.SH')
+    print(df)
 
 
     
