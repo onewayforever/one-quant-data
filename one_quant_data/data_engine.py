@@ -238,8 +238,11 @@ class DataEngine():
 
 
 
-    def get_trade_dates(self,start):
-        return list(sorted(self.pro.index_daily(ts_code='000001.SH', start_date=format_date_ts_pro(start)).trade_date,reverse=True))
+    def get_trade_dates(self,start=START_DATE):
+        if self.api=='tushare_pro'
+            return list(sorted(self.pro.index_daily(ts_code='000001.SH', start_date=format_date_ts_pro(start)).trade_date,reverse=True))
+        else:
+            return list(filter(lambda x:x>=start,self.__get_cached_trade_dates()))
     
     def __check_date_range(self,start_date,end_date):
         start_date = self.cached_start if start_date is None else start_date
@@ -575,6 +578,10 @@ class DataEngine():
         self.stock_names = df[['ts_code','name']]
         return df
 
+    '''
+        自定义的api
+    '''
+
     def index_codes(self):
         #if self.__index_codes is None:
         #    query_stock = "SELECT ts_code FROM {} group by ts_code;".format(self.tables['index_basic_daily'])
@@ -591,6 +598,7 @@ class DataEngine():
             return df
         else:
             return df.merge(self.stock_names,on='ts_code',how='left')
+
 
         
 
