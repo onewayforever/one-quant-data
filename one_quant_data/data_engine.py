@@ -238,11 +238,6 @@ class DataEngine():
 
 
 
-    def get_trade_dates(self,start=START_DATE):
-        if self.api=='tushare_pro'
-            return list(sorted(self.pro.index_daily(ts_code='000001.SH', start_date=format_date_ts_pro(start)).trade_date,reverse=True))
-        else:
-            return list(filter(lambda x:x>=start,self.__get_cached_trade_dates()))
     
     def __check_date_range(self,start_date,end_date):
         start_date = self.cached_start if start_date is None else start_date
@@ -581,6 +576,11 @@ class DataEngine():
     '''
         自定义的api
     '''
+    def get_trade_dates(self,start=START_DATE):
+        if self.api=='tushare_pro':
+            return list(sorted(self.pro.index_daily(ts_code='000001.SH', start_date=format_date_ts_pro(start)).trade_date,reverse=True))
+        else:
+            return list(filter(lambda x:x>=start,self.__get_cached_trade_dates()))
 
     def index_codes(self):
         #if self.__index_codes is None:
@@ -598,6 +598,14 @@ class DataEngine():
             return df
         else:
             return df.merge(self.stock_names,on='ts_code',how='left')
+
+    def stock_daily_all(self):
+        start_time=datetime.datetime.now()
+        df = pd.read_sql_query("select * from {} trade_date;".format(self.tables['stock_trade_daily']),self.conn)
+        end_time=datetime.datetime.now()
+        print('{}->{}'.format(start_time,end_time))
+        return pro_opt_stock_k(df)
+        
 
 
         
@@ -628,6 +636,9 @@ def test_api():
     df=engine.index_daily('000001.SH')
     print(df)
     print(engine.attach_stock_name(df_daily))
+    df=engine.stock_daily_all()
+    print(df)
+    print(df.shape)
 
 
 
