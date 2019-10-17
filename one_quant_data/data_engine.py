@@ -18,6 +18,7 @@ import datetime
 import pymysql
 np.set_printoptions(suppress=True)
 
+sys.stdout = open(sys.stdout.fileno(), mode='w', encoding='utf8', buffering=1)
         
 #使用创业板开板时间作为默认起始时间
 START_DATE='2010-06-01'
@@ -362,7 +363,6 @@ class DataEngine():
 
 
     def pro_sync_data_by_date(self,date):
-        self.cached_range()
         #print(self.cached_trade_dates)
         if date not in self.cached_trade_dates['stock_trade_daily']:
             df_k = self.pro.daily(trade_date=format_date_ts_pro(date))
@@ -402,6 +402,7 @@ class DataEngine():
                         pass; #print(res)
     
     def sync_data_by_date(self,date):
+        self.cached_range()
         if self.api=='tushare_pro':
             return self.pro_sync_data_by_date(date)
     
@@ -555,7 +556,6 @@ class DataEngine():
         self.cached_end = None if len(cached_dates)==0 else max(cached_dates)
         if self.cached_start is None or self.cached_end is None:
             print('ERROR: db is empty, please use sync_data to sync data first')
-            exit(0)
         else:
             print('NOTICE: trade data is available from {} to {}'.format(self.cached_start,self.cached_end))
         return (self.cached_start,self.cached_end)
