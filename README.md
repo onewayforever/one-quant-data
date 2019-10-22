@@ -76,3 +76,4 @@ one_quant_data是A股量化数据引擎，用于为量化工具提供数据支�
     |index_codes| 返回缓存的指数代码| | list | |  
     |cached_range| 返回缓存的数据的开始，结束时间| | (cached_start,cached_end) |输出格式为tuple|
     |attach_stock_name| 根据一个dataframe的ts_code，添加股票名称|df|带name列的dataframe|必须有ts_code字段|
+    |get_cached_trade_dates|获得所有缓存的数据日期| |list | |

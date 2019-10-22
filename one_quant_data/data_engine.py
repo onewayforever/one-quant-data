@@ -576,6 +576,9 @@ class DataEngine():
     '''
         自定义的api
     '''
+    def get_cached_trade_dates():
+        return self.__get_cached_trade_dates()
+
     def get_trade_dates(self,start=START_DATE):
         if self.api=='tushare_pro':
             return list(sorted(self.pro.index_daily(ts_code='000001.SH', start_date=format_date_ts_pro(start)).trade_date,reverse=True))
@@ -597,7 +600,11 @@ class DataEngine():
         if 'name' in df.columns:
             return df
         else:
-            return df.merge(self.stock_names,on='ts_code',how='left')
+            df = df.merge(self.stock_names,on='ts_code',how='left')
+            columns = list(df.columns)
+            columns.remove('name')
+            columns.insert(0,'name')
+            return df[columns]
 
     def stock_daily_all(self):
         start_time=datetime.datetime.now()
