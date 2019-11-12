@@ -576,7 +576,7 @@ class DataEngine():
     '''
         自定义的api
     '''
-    def get_cached_trade_dates():
+    def get_cached_trade_dates(self):
         return self.__get_cached_trade_dates()
 
     def get_trade_dates(self,start=START_DATE):
