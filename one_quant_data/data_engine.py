@@ -24,7 +24,7 @@ sys.stdout = open(sys.stdout.fileno(), mode='w', encoding='utf8', buffering=1)
 START_DATE='2010-06-01'
 MIN_DATE='1990-01-01'
 
-TODAY=datetime.date.today().strftime('%Y%m%d')
+#TODAY=datetime.date.today().strftime('%Y%m%d')
 
 def format_date_ts_pro(date):
     if isinstance(date,str):
@@ -277,6 +277,7 @@ class DataEngine():
         if start_date is None:
             start_date = MIN_DATE
         if end_date is None:
+            TODAY=datetime.date.today().strftime('%Y%m%d')
             end_date = TODAY
         #if start_date < self.cached_start:
         #    print('WARNING: query date {} before cached date {}'.format(start_date,self.cached_start))
@@ -321,6 +322,7 @@ class DataEngine():
         if start_date is None:
             start_date = MIN_DATE
         if end_date is None:
+            TODAY=datetime.date.today().strftime('%Y%m%d')
             end_date = TODAY
         #if start_date < self.cached_start:
         #    print('WARNING: query date {} before cached date {}'.format(start_date,self.cached_start))
@@ -335,7 +337,7 @@ class DataEngine():
 
     def fina_mainbz(self,ts_code,period=None,type='P',start_date=None,end_date=None):
         start_date = '19900101' if start_date is None else start_date
-        end_date = TODAY if end_date is None else end_date 
+        end_date = datetime.date.today().strftime('%Y%m%d') if end_date is None else end_date 
         if type=='P':
             table_name='fina_mainbz_product'
         elif type=='D':
@@ -534,6 +536,7 @@ class DataEngine():
         #print('filter:{} {}'.format(ts_code,after_date))
         df.dropna(inplace=True)
         df.drop_duplicates(subset=['ts_code','end_date','bz_item','bz_sales'],inplace=True)
+        TODAY=datetime.date.today().strftime('%Y%m%d')
         df['sync_date'] = TODAY
         dataframe_to_db_replace(df,self.tables[table_name],self.conn)
         #if after_date is not None:
