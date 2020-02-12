@@ -80,6 +80,8 @@ def pro_opt_stock_basic(df):
             'pb':np.float16,              
             'ps':np.float16,              
             'ps_ttm':np.float16,          
+            'dv_ratio':np.float16,
+            'dv_ttm':np.float16,
             'total_share':np.float32,     
             'float_share':np.float32,     
             'free_share':np.float32,      
@@ -167,6 +169,8 @@ class DataEngine():
                             `pb` Float,\
                             `ps` Float,\
                             `ps_ttm` Float,\
+                            `dv_ratio` Float,\
+                            `dv_ttm` Float,\
                             `total_share` Float,\
                             `float_share` Float,\
                             `free_share` Float,\
@@ -353,11 +357,14 @@ class DataEngine():
 
     def __prefetch_data(self):
         assert self.api=="tushare_pro"
-        latest_date = max(self.trade_dates)
+        latest_date = sorted(self.trade_dates)[-2]
         df_index_basic = self.pro.index_dailybasic(trade_date=format_date_ts_pro(latest_date))
         index_codes=list(df_index_basic.ts_code)
         self.index_k_daily = {}
+        #print('__prefetch_data {}'.format(latest_date))
+        #print(index_codes)
         for index in index_codes:
+            #print('-----prefetch index {}'.format(index))
             df=self.pro.index_daily(ts_code=index,start_date=format_date_ts_pro(self.START_DATE))
             self.index_k_daily[index] = df
 
@@ -392,6 +399,7 @@ class DataEngine():
                     pass; #print(res)
             if date not in self.cached_trade_dates['index_trade_daily']:
                 #time.sleep(0.3)
+                #print(self.index_k_daily)
                 for index in index_codes:
                     df = self.index_k_daily[index]
                     df = df[df.trade_date==format_date_ts_pro(date)]
