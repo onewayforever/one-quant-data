@@ -8,7 +8,7 @@ with open("README.md", "r",encoding="utf8") as fh:
 
 setup(
     name='one_quant_data',
-    version='0.1.6',
+    version='0.1.7',
     author='onewayforever',
     author_email='onewayforever@163.com',
     url='https://github.com/onewayforever/one-quant-data',

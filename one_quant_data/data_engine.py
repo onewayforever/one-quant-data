@@ -246,7 +246,7 @@ class DataEngine():
     
     def __check_date_range(self,start_date,end_date):
         start_date = self.cached_start if start_date is None else start_date
-        end_date = self.cached_end if end_date is None else end_date 
+        end_date = datetime.date.today().strftime('%Y%m%d') if end_date is None else end_date 
         #if start_date < self.cached_start:
         #    print('WARNING: query date {} before cached date {}'.format(start_date,self.cached_start))
         #if end_date > self.cached_end:
@@ -273,16 +273,12 @@ class DataEngine():
     def pro_bar(self,ts_code,start_date=None,end_date=None,asset='E',adj=None,freq='D'):
         assert asset=='E'
         start_date = self.cached_start if start_date is None else start_date
-        end_date = self.cached_end if end_date is None else end_date 
-        if start_date is None:
-            start_date = MIN_DATE
+        #end_date = self.cached_end if end_date is None else end_date 
+        #if start_date is None:
+        #    start_date = MIN_DATE
         if end_date is None:
             TODAY=datetime.date.today().strftime('%Y%m%d')
             end_date = TODAY
-        #if start_date < self.cached_start:
-        #    print('WARNING: query date {} before cached date {}'.format(start_date,self.cached_start))
-        #if end_date > self.cached_end:
-        #    print('WARNING: query date {} after cached date {}'.format(end_date,self.cached_end))
         df_k = pd.read_sql_query("select * from {} where trade_date>='{}' and trade_date<='{}' and ts_code='{}' order by trade_date;".format(self.tables['stock_trade_daily'],start_date,end_date,ts_code),self.conn)
         if adj is None:
             return pro_opt_stock_k(df_k)
@@ -558,6 +554,17 @@ class DataEngine():
             #self.__stock_basic = pd.read_sql_query(query_stock,self.conn)
             #query_stock = "SELECT ts_code FROM {} group by ts_code;".format(self.tables['index_basic_daily'])
             #self.__index_codes = list(pd.read_sql_query(query_stock,self.conn).ts_code)
+
+
+    def reload_cache(self):
+        cached_dates = self.__get_cached_trade_dates()
+        self.cached_start = None if len(cached_dates)==0 else min(cached_dates) 
+        self.cached_end = None if len(cached_dates)==0 else max(cached_dates)
+        if self.cached_start is None or self.cached_end is None:
+            print('ERROR: db is empty, please use sync_data to sync data first')
+            exit(0)
+        else:
+            print('NOTICE: trade data is available from {} to {}'.format(self.cached_start,self.cached_end))
 
     def cached_range(self):
         if self.cached_start is not None and self.cached_end is not None:
